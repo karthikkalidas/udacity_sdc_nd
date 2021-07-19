@@ -15,7 +15,6 @@ import matplotlib.image as mpimg
 TEST_DIR = './test_images/'
 SAVE_DIR = TEST_DIR + 'undistorted/'
 
-## CAMERA CALIBRATION
 def camera_cal():
     # prepare object points, like (0,0,0), (1,0,0), ...., (8,5,0)
     objp = np.zeros((9*6,3), np.float32)
@@ -55,7 +54,6 @@ def camera_cal():
         undistorted_fname = SAVE_DIR + os.path.splitext(os.path.basename(fname))[0] + '_undistorted.jpg'
         cv2.imwrite(undistorted_fname, undistorted)
 
-## IMAGE BINARY THRESHOLDING
 def abs_sobel_thresh(gray, orient='x', sobel_kernel=3, thresh=(0, 255)):
     if orient == 'x':
         abs_sobel = np.absolute(cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel))
@@ -108,6 +106,42 @@ def binary_threshold(img):
     # plt.imshow(combined, cmap='gray')
     # plt.show()
     return combined
+
+# Define a class to receive the characteristics of each line detection
+class Line():
+    def __init__(self):
+        # was the line detected in the last iteration?
+        self.detected = False
+        # x values of the last n fits of the line
+        self.recent_xfitted = []
+        #average x values of the fitted line over the last n iterations
+        self.bestx = None
+        #polynomial coefficients averaged over the last n iterations
+        self.best_fit = None
+        #polynomial coefficients for the most recent fit
+        self.current_fit = [np.array([False])]
+        #radius of curvature of the line in some units
+        self.radius_of_curvature = None
+        #distance in meters of vehicle center from the line
+        self.line_base_pos = None
+        #difference in fit coefficients between last and new fits
+        self.diffs = np.array([0,0,0], dtype='float')
+        #x values for detected line pixels
+        self.allx = None
+        #y values for detected line pixels
+        self.ally = None
+
+    def measure_curvature_real(self):
+        # Define conversions in x and y from pixels space to meters
+        ym_per_pix = 30/720 # meters per pixel in y dimension
+        xm_per_pix = 3.7/700 # meters per pixel in x dimension
+
+        # We'll choose the maximum y-value, corresponding to the bottom of the image
+        y_eval = np.max(self.ally)
+
+        # Calculation of R_curve (radius of curvature)
+        self.radius_of_curvature = ((1 + (2*self.current_fit[0]*y_eval*ym_per_pix + self.current_fit[1])**2)**1.5) \
+                                    / np.absolute(2*self.current_fit[0])
 
 def find_lane_pixels(binary_warped):
     # Take a histogram of the bottom half of the image
@@ -209,67 +243,79 @@ def fit_polynomial(binary_warped):
         left_fitx = 1*ploty**2 + 1*ploty
         right_fitx = 1*ploty**2 + 1*ploty
 
+    # Create a left Line object
+    left_line = Line()
+    left_line.detected = True
+    left_line.current_fit = left_fit
+    left_line.allx = left_fitx
+    left_line.ally = ploty
+    left_line.bestx = np.mean(left_line.allx)
+
+    # Create a right Line object
+    right_line = Line()
+    right_line.detected = True
+    right_line.current_fit = right_fit
+    right_line.allx = right_fitx
+    right_line.ally = ploty
+    right_line.bestx = np.mean(right_line.allx)
+
     ## Visualization ##
     # Colors in the left and right lane regions
     out_img[lefty, leftx] = [255, 0, 0]
     out_img[righty, rightx] = [0, 0, 255]
 
     # Plots the left and right polynomials on the lane lines
-    plt.plot(left_fitx, ploty, color='yellow')
-    plt.plot(right_fitx, ploty, color='yellow')
+    # plt.plot(left_fitx, ploty, color='yellow')
+    # plt.plot(right_fitx, ploty, color='yellow')
 
-    return out_img
-
-def measure_curvature_real():
-    # Define conversions in x and y from pixels space to meters
-    ym_per_pix = 30/720 # meters per pixel in y dimension
-    xm_per_pix = 3.7/700 # meters per pixel in x dimension
-
-    # We'll choose the maximum y-value, corresponding to the bottom of the image
-    y_eval = np.max(ploty)
-
-    # Calculation of R_curve (radius of curvature)
-    left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
-    right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
-
-    return left_curverad, right_curverad
-
-def warp_back():
-    # Create an image to draw the lines on
-    warp_zero = np.zeros_like(warped).astype(np.uint8)
-    color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
-
-    # Recast the x and y points into usable format for cv2.fillPoly()
-    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
-    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
-    pts = np.hstack((pts_left, pts_right))
-
-    # Draw the lane onto the warped blank image
-    cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
-
-    # Warp the blank back to original image space using inverse perspective matrix (Minv)
-    newwarp = cv2.warpPerspective(color_warp, Minv, (image.shape[1], image.shape[0]))
-    # Combine the result with the original image
-    result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
-    return result
-
-# Calculate the radius of curvature in meters for both lane lines
-left_curverad, right_curverad = measure_curvature_real()
+    return out_img, left_line, right_line
 
 def find_lanelines():
+    ## CAMERA CALIBRATION
     # camera_cal()
+
+    ## LOADING TEST IMAGES/VIDEOS
     img = cv2.imread(SAVE_DIR + 'test1_undistorted.jpg')
+
+    ## IMAGE BINARY THRESHOLDING
     binary_combined = binary_threshold(img)
 
     ## PERSPECTIVE TRANSFORM
     img_size = (img.shape[1], img.shape[0])
     src = np.float32([[250,670],[600,445],[740,445],[1130,670]])
-    dst = np.float32([[100,750],[100,0],[1230,0],[1230,750]])
+    dst = np.float32([[250,660],[250,0],[1150,0],[1150,660]])
     M = cv2.getPerspectiveTransform(src, dst)
     binary_warped = cv2.warpPerspective(binary_combined, M, img_size, flags=cv2.INTER_LINEAR)
 
-    out_img = fit_polynomial(binary_warped)
-    plt.imshow(out_img, cmap='gray')
+    ## POLYNOMIAL FITTING
+    out_img, left_line, right_line = fit_polynomial(binary_warped)
+
+    ## CURVATURE ESTIMATION
+    left_line.measure_curvature_real()
+    right_line.measure_curvature_real()
+    print(left_line.radius_of_curvature, right_line.radius_of_curvature)
+
+    ## POSITION ESTIMATION
+    vehicle_center = ((left_line.bestx + right_line.bestx)/2) - (img.shape[1]/2)
+    print(vehicle_center)
+
+    ## FINAL RESULT WARPED BACK
+    # Create an image to draw the lines on
+    warp_zero = np.zeros_like(binary_warped).astype(np.uint8)
+    color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+    # Recast the x and y points into usable format for cv2.fillPoly()
+    pts_left = np.array([np.transpose(np.vstack([left_line.allx, left_line.ally]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_line.allx, right_line.ally])))])
+    pts = np.hstack((pts_left, pts_right))
+    # Draw the lane onto the warped blank image
+    cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
+    # Warp the blank back to original image space using inverse perspective matrix (Minv)
+    Minv = cv2.getPerspectiveTransform(dst, src)
+    newwarp = cv2.warpPerspective(color_warp, Minv, img_size)
+    # Combine the result with the original image
+    result = cv2.addWeighted(img, 1, newwarp, 0.3, 0)
+
+    plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
     plt.show()
 
 if __name__=='__main__':
