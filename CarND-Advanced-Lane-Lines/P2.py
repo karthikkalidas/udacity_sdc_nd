@@ -11,6 +11,7 @@ import cv2
 import glob
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+from moviepy.editor import VideoFileClip
 
 TEST_DIR = './test_images/'
 SAVE_DIR = TEST_DIR + 'undistorted/'
@@ -107,8 +108,8 @@ def binary_threshold(img):
     # plt.show()
     return combined
 
-# Define a class to receive the characteristics of each line detection
 class Line():
+    # Define a class to receive the characteristics of each line detection
     def __init__(self):
         # was the line detected in the last iteration?
         self.detected = False
@@ -270,12 +271,12 @@ def fit_polynomial(binary_warped):
 
     return out_img, left_line, right_line
 
-def find_lanelines():
+def find_lanelines(img):
     ## CAMERA CALIBRATION
     # camera_cal()
 
     ## LOADING TEST IMAGES/VIDEOS
-    img = cv2.imread(SAVE_DIR + 'test1_undistorted.jpg')
+    # img = cv2.imread(SAVE_DIR + 'test1_undistorted.jpg')
 
     ## IMAGE BINARY THRESHOLDING
     binary_combined = binary_threshold(img)
@@ -314,9 +315,18 @@ def find_lanelines():
     newwarp = cv2.warpPerspective(color_warp, Minv, img_size)
     # Combine the result with the original image
     result = cv2.addWeighted(img, 1, newwarp, 0.3, 0)
-
-    plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
-    plt.show()
+    # result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+    # plt.imshow(result)
+    # plt.show()
+    return result
 
 if __name__=='__main__':
-    find_lanelines()
+    project_video = './project_video.mp4'
+    challenge_video = './challenge_video.mp4'
+    harder_challenge_video = './harder_challenge_video.mp4'
+    project_output = './project_video_output.mp4'
+    challenge_video_output = './challenge_video_output.mp4'
+    harder_challenge_video_output = './harder_challenge_video_output.mp4'
+    input_clip = VideoFileClip(project_video).subclip(0,5)
+    output_clip = input_clip.fl_image(find_lanelines)
+    output_clip.write_videofile(project_output)
